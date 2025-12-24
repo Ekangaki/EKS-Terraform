@@ -103,12 +103,12 @@ resource "aws_eks_node_group" "afro-it" {
   subnet_ids      = aws_subnet.afro-it_subnet[*].id
 
   scaling_config {
-    desired_size = 2
-    max_size     = 3
+    desired_size = 3
+    max_size     = 4
     min_size     = 2
   }
 
-  instance_types = ["t2.medium"]
+  instance_types = ["t2.large"]
 
   remote_access {
     ec2_ssh_key = var.ssh_key_name
