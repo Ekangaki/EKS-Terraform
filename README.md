@@ -1,7 +1,7 @@
 # EKS-Terraform
 
 
-# ⚠️ Required Post-Terraform Step (Do Not Skip)
+## ⚠️ Required Post-Terraform Step (Do Not Skip)
 
 # After successfully running:
 
