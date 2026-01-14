@@ -2,6 +2,9 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# ------------------------
+# VPC
+# ------------------------
 resource "aws_vpc" "afro-it_vpc" {
   cidr_block = "10.0.0.0/16"
 
@@ -10,8 +13,11 @@ resource "aws_vpc" "afro-it_vpc" {
   }
 }
 
+# ------------------------
+# Subnets
+# ------------------------
 resource "aws_subnet" "afro-it_subnet" {
-  count = 2
+  count                   = 2
   vpc_id                  = aws_vpc.afro-it_vpc.id
   cidr_block              = cidrsubnet(aws_vpc.afro-it_vpc.cidr_block, 8, count.index)
   availability_zone       = element(["us-east-1a", "us-east-1b"], count.index)
@@ -22,6 +28,9 @@ resource "aws_subnet" "afro-it_subnet" {
   }
 }
 
+# ------------------------
+# Internet Gateway
+# ------------------------
 resource "aws_internet_gateway" "afro-it_igw" {
   vpc_id = aws_vpc.afro-it_vpc.id
 
@@ -30,6 +39,9 @@ resource "aws_internet_gateway" "afro-it_igw" {
   }
 }
 
+# ------------------------
+# Route Table
+# ------------------------
 resource "aws_route_table" "afro-it_route_table" {
   vpc_id = aws_vpc.afro-it_vpc.id
 
@@ -49,6 +61,9 @@ resource "aws_route_table_association" "a" {
   route_table_id = aws_route_table.afro-it_route_table.id
 }
 
+# ------------------------
+# Security Groups
+# ------------------------
 resource "aws_security_group" "afro-it_cluster_sg" {
   vpc_id = aws_vpc.afro-it_vpc.id
 
@@ -68,10 +83,17 @@ resource "aws_security_group" "afro-it_node_sg" {
   vpc_id = aws_vpc.afro-it_vpc.id
 
   ingress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.afro-it_cluster_sg.id]
+  }
+
+  ingress {
+    from_port       = 10250
+    to_port         = 10250
+    protocol        = "tcp"
+    security_groups = [aws_security_group.afro-it_cluster_sg.id]
   }
 
   egress {
@@ -86,53 +108,20 @@ resource "aws_security_group" "afro-it_node_sg" {
   }
 }
 
-resource "aws_eks_cluster" "afro-it" {
-  name     = "afro-it-cluster"
-  role_arn = aws_iam_role.afro-it_cluster_role.arn
-
-  vpc_config {
-    subnet_ids         = aws_subnet.afro-it_subnet[*].id
-    security_group_ids = [aws_security_group.afro-it_cluster_sg.id]
-  }
-}
-
-resource "aws_eks_node_group" "afro-it" {
-  cluster_name    = aws_eks_cluster.afro-it.name
-  node_group_name = "afro-it-node-group"
-  node_role_arn   = aws_iam_role.afro-it_node_group_role.arn
-  subnet_ids      = aws_subnet.afro-it_subnet[*].id
-
-  scaling_config {
-    desired_size = 3
-    max_size     = 4
-    min_size     = 2
-  }
-
-  instance_types = ["t2.large"]
-
-  remote_access {
-    ec2_ssh_key = var.ssh_key_name
-    source_security_group_ids = [aws_security_group.afro-it_node_sg.id]
-  }
-}
-
+# ------------------------
+# IAM Roles
+# ------------------------
 resource "aws_iam_role" "afro-it_cluster_role" {
   name = "afro-it-cluster-role"
 
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "eks.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "eks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "afro-it_cluster_role_policy" {
@@ -143,20 +132,14 @@ resource "aws_iam_role_policy_attachment" "afro-it_cluster_role_policy" {
 resource "aws_iam_role" "afro-it_node_group_role" {
   name = "afro-it-node-group-role"
 
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "ec2.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
 resource "aws_iam_role_policy_attachment" "afro-it_node_group_role_policy" {
@@ -173,3 +156,52 @@ resource "aws_iam_role_policy_attachment" "afro-it_node_group_registry_policy" {
   role       = aws_iam_role.afro-it_node_group_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
+
+# ------------------------
+# EKS Cluster
+# ------------------------
+resource "aws_eks_cluster" "afro-it" {
+  name     = "afro-it-cluster"
+  role_arn = aws_iam_role.afro-it_cluster_role.arn
+
+  vpc_config {
+    subnet_ids              = aws_subnet.afro-it_subnet[*].id
+    security_group_ids      = [aws_security_group.afro-it_cluster_sg.id]
+    endpoint_public_access  = true
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.afro-it_cluster_role_policy
+  ]
+}
+
+# ------------------------
+# EKS Node Group
+# ------------------------
+resource "aws_eks_node_group" "afro-it" {
+  cluster_name    = aws_eks_cluster.afro-it.name
+  node_group_name = "afro-it-node-group"
+  node_role_arn   = aws_iam_role.afro-it_node_group_role.arn
+  subnet_ids      = aws_subnet.afro-it_subnet[*].id
+
+  scaling_config {
+    desired_size = 3
+    max_size     = 4
+    min_size     = 2
+  }
+
+  instance_types = ["t3.large"]
+
+  remote_access {
+    ec2_ssh_key               = var.ssh_key_name
+    source_security_group_ids = [aws_security_group.afro-it_node_sg.id]
+  }
+
+  depends_on = [
+    aws_eks_cluster.afro-it,
+    aws_iam_role_policy_attachment.afro-it_node_group_role_policy,
+    aws_iam_role_policy_attachment.afro-it_node_group_cni_policy,
+    aws_iam_role_policy_attachment.afro-it_node_group_registry_policy
+  ]
+}
+
