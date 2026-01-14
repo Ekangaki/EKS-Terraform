@@ -8,7 +8,7 @@
 terraform apply
 
 
-# You must update your local kubeconfig to connect to the EKS cluster:
+### You must update your local kubeconfig to connect to the EKS cluster:
 
 aws eks update-kubeconfig \
   --region us-east-1 \
